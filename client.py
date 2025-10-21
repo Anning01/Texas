@@ -475,11 +475,17 @@ class PokerClient:
         except KeyboardInterrupt:
             self.console.print("\n正在退出...", style="yellow")
         finally:
-            if self.room_id:
-                await self.send_message({'type': 'leave_room'})
+            if self.room_id and self.ws:
+                try:
+                    await self.send_message({'type': 'leave_room'})
+                except:
+                    pass
             receive_task.cancel()
             if self.ws:
-                await self.ws.close()
+                try:
+                    await self.ws.close()
+                except:
+                    pass
 
 
 def main():
