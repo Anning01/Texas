@@ -24,7 +24,7 @@
 ### 2. 安装依赖
 
 ```bash
-pip install -r requirements.txt
+uv sync
 ```
 
 依赖包:
