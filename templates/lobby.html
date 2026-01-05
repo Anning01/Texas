@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+
+{% block title %}德州扑克 - 大厅{% endblock %}
+
+{% block content %}
+<div class="lobby-page">
+    <header class="lobby-header">
+        <h1>🃏 游戏大厅</h1>
+        <div class="user-info">
+            <span class="player-name">👤 {{ player_name }}</span>
+        </div>
+    </header>
+
+    <div class="lobby-content">
+        <!-- 创建房间 -->
+        <section class="create-room-section">
+            <h2>创建房间</h2>
+            <form action="/create-room" method="post" class="create-room-form">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="room_name">房间名称</label>
+                        <input 
+                            type="text" 
+                            id="room_name" 
+                            name="room_name" 
+                            placeholder="输入房间名称" 
+                            required
+                            maxlength="20"
+                        >
+                    </div>
+                    <div class="form-group">
+                        <label for="betting_mode">游戏模式</label>
+                        <select id="betting_mode" name="betting_mode">
+                            <option value="no_limit">无限注</option>
+                            <option value="pot_limit">彩池限注</option>
+                            <option value="limit">限注</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="small_blind">小盲注</label>
+                        <input 
+                            type="number" 
+                            id="small_blind" 
+                            name="small_blind" 
+                            value="10"
+                            min="1"
+                            max="1000"
+                        >
+                    </div>
+                    <div class="form-group">
+                        <label for="big_blind">大盲注</label>
+                        <input 
+                            type="number" 
+                            id="big_blind" 
+                            name="big_blind" 
+                            value="20"
+                            min="2"
+                            max="2000"
+                        >
+                    </div>
+                    <div class="form-group">
+                        <label for="ante">前注 (可选)</label>
+                        <input 
+                            type="number" 
+                            id="ante" 
+                            name="ante" 
+                            value="0"
+                            min="0"
+                            max="500"
+                            placeholder="0表示不使用"
+                        >
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary">创建房间</button>
+            </form>
+        </section>
+
+        <!-- 房间列表 -->
+        <section class="room-list-section">
+            <h2>房间列表 <button class="btn-refresh" onclick="location.reload()">🔄</button></h2>
+            
+            {% if rooms %}
+            <div class="room-list">
+                {% for room in rooms %}
+                <div class="room-card">
+                    <div class="room-info">
+                        <h3>{{ room.name }}</h3>
+                        <div class="room-meta">
+                            <span class="room-id">ID: {{ room.id }}</span>
+                            <span class="room-mode">{{ room.mode }}</span>
+                            <span class="room-players">👥 {{ room.player_count }}/10</span>
+                            <span class="room-stage">{{ room.stage }}</span>
+                        </div>
+                    </div>
+                    <a href="/room/{{ room.id }}" class="btn btn-join">加入</a>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="empty-state">
+                <p>暂无房间，创建一个开始游戏吧！</p>
+            </div>
+            {% endif %}
+        </section>
+    </div>
+</div>
+{% endblock %}

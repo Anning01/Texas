@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}德州扑克 - 登录{% endblock %}
+
+{% block content %}
+<div class="login-page">
+    <div class="login-card">
+        <h1>🃏 德州扑克</h1>
+        <p class="subtitle">在线多人对战</p>
+        
+        <form action="/set-player" method="post" class="login-form">
+            <div class="form-group">
+                <label for="player_name">输入你的昵称</label>
+                <input 
+                    type="text" 
+                    id="player_name" 
+                    name="player_name" 
+                    placeholder="请输入昵称" 
+                    required 
+                    maxlength="20"
+                    autocomplete="off"
+                >
+            </div>
+            <button type="submit" class="btn btn-primary">进入大厅</button>
+        </form>
+    </div>
+</div>
+{% endblock %}
