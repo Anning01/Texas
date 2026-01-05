@@ -249,6 +249,7 @@ class Player:
     folded: bool
     all_in: bool
     position: int  # 座位位置
+    has_acted: bool = False  # 本轮是否已行动
 
     def reset_for_new_hand(self):
         """新一手牌重置"""
@@ -257,6 +258,12 @@ class Player:
         self.total_bet = 0
         self.folded = False
         self.all_in = False
+        self.has_acted = False
+    
+    def reset_for_new_round(self):
+        """新一轮下注重置"""
+        self.current_bet = 0
+        self.has_acted = False
 
 
 @dataclass
@@ -272,6 +279,7 @@ class GameState:
         self.betting_mode = betting_mode
         self.small_blind = 10
         self.big_blind = 20
+        self.ante = 0  # 前注，默认为0（不使用）
         self.stage = GameStage.WAITING
         self.dealer_position = 0
         self.current_player_index = 0
@@ -284,6 +292,8 @@ class GameState:
         self.players: List[Player] = []
         self.room_owner: Optional[str] = None
         self.last_raiser_index = -1
+        self.raise_count = 0  # 当前轮加注次数（限注模式用）
+        self.max_raises = 4   # 限注模式每轮最多加注次数
 
     def add_player(self, player_id: str, player_name: str, chips: int = 1000):
         """添加玩家"""
@@ -296,7 +306,8 @@ class GameState:
             total_bet=0,
             folded=False,
             all_in=False,
-            position=len(self.players)
+            position=len(self.players),
+            has_acted=False
         )
         self.players.append(player)
         if self.room_owner is None:
@@ -322,6 +333,7 @@ class GameState:
         self.current_bet = 0
         self.min_raise = self.big_blind
         self.last_raiser_index = -1
+        self.raise_count = 0  # 重置加注次数
 
         # 重置玩家状态
         for player in self.players:
@@ -339,14 +351,33 @@ class GameState:
         self._post_blinds()
 
         self.stage = GameStage.PREFLOP
-        # 翻牌前从大盲注下家开始
-        self.current_player_index = (self.dealer_position + 3) % len(self.players)
+        
+        # 翻牌前行动顺序
+        num_players = len(self.players)
+        if num_players == 2:
+            # 2人时：庄家（小盲）先行动
+            self.current_player_index = self.dealer_position
+        else:
+            # 3人以上：大盲下家（UTG）先行动
+            self.current_player_index = (self.dealer_position + 3) % num_players
 
         return True
 
     def _post_blinds(self):
-        """下盲注"""
+        """下盲注和前注"""
         num_players = len(self.players)
+        
+        # 先收取前注（如果启用）
+        if self.ante > 0:
+            for player in self.players:
+                ante_amount = min(self.ante, player.chips)
+                player.chips -= ante_amount
+                player.total_bet += ante_amount
+                self.main_pot += ante_amount
+                if player.chips == 0:
+                    player.all_in = True
+        
+        # 确定盲注位置
         if num_players == 2:
             # 一对一: 庄家下小盲注,对手下大盲注
             small_blind_idx = self.dealer_position
@@ -360,7 +391,7 @@ class GameState:
         sb_amount = min(self.small_blind, sb_player.chips)
         sb_player.chips -= sb_amount
         sb_player.current_bet = sb_amount
-        sb_player.total_bet = sb_amount
+        sb_player.total_bet += sb_amount
         self.main_pot += sb_amount
 
         if sb_player.chips == 0:
@@ -371,7 +402,7 @@ class GameState:
         bb_amount = min(self.big_blind, bb_player.chips)
         bb_player.chips -= bb_amount
         bb_player.current_bet = bb_amount
-        bb_player.total_bet = bb_amount
+        bb_player.total_bet += bb_amount
         self.main_pot += bb_amount
         self.current_bet = bb_amount
 
@@ -394,28 +425,75 @@ class GameState:
 
     def is_betting_round_complete(self) -> bool:
         """判断下注轮是否完成"""
-        active_players = [p for p in self.players if not p.folded and not p.all_in]
-
-        # 如果只剩一个或没有活跃玩家,结束
-        if len(active_players) <= 1:
+        # 获取未弃牌的玩家
+        non_folded_players = [p for p in self.players if not p.folded]
+        
+        # 如果只剩一个或没有未弃牌玩家，结束
+        if len(non_folded_players) <= 1:
             return True
-
-        # 所有活跃玩家下注相同
-        if len(active_players) > 0:
-            target_bet = self.current_bet
-            for player in active_players:
-                if player.current_bet != target_bet:
-                    return False
-
+        
+        # 获取可以行动的玩家（未弃牌且未全押）
+        active_players = [p for p in non_folded_players if not p.all_in]
+        
+        # 如果没有可以行动的玩家（所有人都全押了），下注轮完成
+        if len(active_players) == 0:
+            return True
+        
+        # 检查所有可行动玩家是否都已行动
+        for player in active_players:
+            if not player.has_acted:
+                return False
+        
+        # 检查所有可行动玩家的下注是否相同
+        target_bet = self.current_bet
+        for player in active_players:
+            if player.current_bet != target_bet:
+                return False
+        
         return True
+
+    def get_max_raise(self, player) -> int:
+        """根据下注模式获取最大加注额"""
+        if self.betting_mode == BettingMode.NO_LIMIT:
+            # 无限注：最大为玩家所有筹码
+            return player.chips
+        elif self.betting_mode == BettingMode.POT_LIMIT:
+            # 彩池限注：最大加注额 = 当前底池 + 跟注后的底池
+            call_amount = self.current_bet - player.current_bet
+            pot_after_call = self.main_pot + call_amount
+            max_raise = pot_after_call + call_amount  # 可以加注的最大额
+            return min(max_raise, player.chips)
+        else:
+            # 限注：固定加注额，且有加注次数限制
+            if self.raise_count >= self.max_raises:
+                return 0  # 已达到最大加注次数，不能再加注
+            if self.stage in [GameStage.PREFLOP, GameStage.FLOP]:
+                return self.big_blind
+            else:  # TURN, RIVER
+                return self.big_blind * 2
+    
+    def get_min_raise(self) -> int:
+        """获取最小加注额"""
+        if self.betting_mode == BettingMode.LIMIT:
+            # 限注：固定加注额
+            if self.stage in [GameStage.PREFLOP, GameStage.FLOP]:
+                return self.big_blind
+            else:
+                return self.big_blind * 2
+        else:
+            # 无限注/彩池限注：最小为上次加注额或大盲
+            return self.min_raise
 
     def advance_stage(self):
         """进入下一阶段"""
-        # 重置当前下注
+        # 重置当前下注和行动状态
         for player in self.players:
             player.current_bet = 0
+            player.has_acted = False
         self.current_bet = 0
+        self.min_raise = self.big_blind  # 每个阶段重置最小加注为大盲
         self.last_raiser_index = -1
+        self.raise_count = 0  # 重置加注次数
 
         if self.stage == GameStage.PREFLOP:
             # 发翻牌
@@ -496,6 +574,31 @@ class GameState:
                 results.append((winner, share + (remainder if closest_winner and winner == closest_winner else 0), player_hands[winner.id]))
 
         return results
+
+    def get_showdown_order(self) -> List[Player]:
+        """获取摊牌亮牌顺序"""
+        active_players = [p for p in self.players if not p.folded]
+        
+        if not active_players:
+            return []
+        
+        # 确定起始位置
+        if self.last_raiser_index >= 0:
+            # 如果河牌圈有下注/加注，最后加注的玩家先亮牌
+            start_position = self.last_raiser_index
+        else:
+            # 如果无下注（全过牌），从庄家左侧第一位开始
+            start_position = (self.dealer_position + 1) % len(self.players)
+        
+        # 按顺序排列
+        ordered = []
+        for i in range(len(self.players)):
+            pos = (start_position + i) % len(self.players)
+            player = next((p for p in active_players if p.position == pos), None)
+            if player:
+                ordered.append(player)
+        
+        return ordered
 
     def _calculate_side_pots(self):
         """计算主池和边池"""
