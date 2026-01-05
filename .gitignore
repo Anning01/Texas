@@ -209,4 +209,5 @@ __marimo__/
 
 .claude
 CLAUDE.md
-test*
+.vscode
+.serena
